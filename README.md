@@ -1,4 +1,4 @@
-# syn-horse-notifications
+# `syn-horse-notifications`
 
 Cloudflare Worker queue consumer for processing notification messages through a staged pipeline (logging, rate limits, AI moderation, delivery).
 
@@ -145,3 +145,4 @@ pnpm run deploy
 - Install policy is in `pnpm-workspace.yaml`: `allowBuilds` lists packages allowed to run install scripts (add new ones there or `pnpm add` fails), and `minimumReleaseAge` keeps resolved versions at least a week old.
 - `pnpm test` runs the Vitest suite in `test/`; Jev responses are replayed from `test/fixtures/jev-moderation.json`, so no network or API key is needed.
 - `.env.example` / `.dev.vars.example` are currently empty.
+
