@@ -15,15 +15,17 @@ For each queue message:
 1. Validate payload with Zod (`safeParseMessage` in `src/schema.ts`)
 2. Insert an audit row in D1 (`runLogging`)
 3. Enforce KV-based per-source rate limits (`runRateLimits`)
-4. Run Workers AI moderation (`runAi`)
+4. Run AI moderation through TypeSafe's Jev model (`runAi`)
 5. Deliver via the channel's adapter and update the final result (`runDelivery`)
 
-Any stage can short-circuit (`STOP`) — for example a rate-limit drop or an AI `nonsense`/`spam` verdict — in which case the message is ACKed and later stages are skipped.
+Any stage can short-circuit (`STOP`) — for example a rate-limit drop or an AI `spam`/`gibberish` verdict — in which case the message is ACKed and later stages are skipped.
+
+AI moderation sends one request with three questions (what kind of message this is, whether it tries to manipulate the screening system, how urgent it is) and applies the drop thresholds in code (`src/stages/ai.ts`). It **fails open**: if Jev cannot be reached the page is delivered and the row is marked `ai_decision = 'error'`.
 
 Error behavior:
 
 - Invalid payloads are logged and ACKed (not retried).
-- Runtime failures throw and the queue message is retried.
+- Runtime failures in logging or delivery throw and the queue message is retried. Rate-limit and AI failures never throw; both fail open.
 
 ### `/ack` HTTP endpoint
 
@@ -38,11 +40,11 @@ Inbound payload schema (`src/schema.ts`):
 - `message`: non-empty string (max 8192)
 - `source`: optional IPv4/IPv6/hostname
 
-D1 migration (`migrations/0001_create_log_table.sql`) creates a `log` table that stores:
+D1 migrations (`migrations/`) create a `log` table that stores:
 
 - raw message fields
 - rate-limit decision/violation
-- AI decision/violation
+- AI decision (`accept` / `drop` / `error`), kind, probabilities, urgency, model and reason
 - adapter(s) used
 - terminal result (`dropped` / `delivered` / `failed`)
 
@@ -62,7 +64,7 @@ Available adapters:
 
 Configured in `wrangler.jsonc`:
 
-- Secrets (`secrets.required`, set with `wrangler secret put`): `NTFY_TOKEN`, `SELF_TOKEN`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_TOKEN`
+- Secrets (`secrets.required`, set with `wrangler secret put`): `NTFY_TOKEN`, `SELF_TOKEN`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_TOKEN`, `TYPESAFE_API_KEY`
 - Plain vars: `NTFY_SERVER` (default `https://ntfy.sh`), `NTFY_TOPIC`
 
 ## Prerequisites
@@ -141,5 +143,5 @@ pnpm run deploy
 - `worker-configuration.d.ts` is generated (`wrangler types`); avoid hand-editing.
 - `postinstall` runs `wrangler types`; a plain `pnpm install` may rewrite `worker-configuration.d.ts`.
 - Install policy is in `pnpm-workspace.yaml`: `allowBuilds` lists packages allowed to run install scripts (add new ones there or `pnpm add` fails), and `minimumReleaseAge` keeps resolved versions at least a week old.
-- `vitest` and `@cloudflare/vitest-pool-workers` are installed, but the repo currently has no test suite (`test` script and `*.test.*`/`*.spec.*` files are absent).
+- `pnpm test` runs the Vitest suite in `test/`; Jev responses are replayed from `test/fixtures/jev-moderation.json`, so no network or API key is needed.
 - `.env.example` / `.dev.vars.example` are currently empty.

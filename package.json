@@ -30,6 +30,7 @@
     "lint:types": "pnpm exec tsc --noEmit",
     "lint:ultracite": "pnpm exec ultracite check",
     "start": "pnpm run dev",
+    "test": "pnpm exec vitest run",
     "types": "pnpm exec wrangler types"
   },
   "dependencies": {

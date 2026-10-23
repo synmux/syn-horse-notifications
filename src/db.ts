@@ -17,11 +17,28 @@ export type RateLimitViolation =
   | "lifetime"
   | "kv_error";
 
-/** Outcome of the AI moderation stage for a single message. */
-export type AiDecision = "accept" | "drop";
+/**
+ * Outcome of the AI moderation stage for a single message.
+ *
+ * `error` is the fail-open path: Jev could not be asked (missing secret,
+ * network error, timeout, 429/529, bad body) and the page was delivered
+ * anyway, with the reason kept in `ai_reason`.
+ */
+export type AiDecision = "accept" | "drop" | "error";
 
-/** Reason recorded alongside an {@link AiDecision}. */
-export type AiViolation = "none" | "fun" | "nonsense" | "spam" | "default";
+/** What the AI stage writes to the log row; see migration 0002 for columns. */
+export interface AiRecord {
+  decision: AiDecision;
+  /** P(spam) + P(gibberish). */
+  dropProbability?: number;
+  hijack?: number;
+  kind?: "page" | "joke" | "gibberish" | "spam";
+  kindConfidence?: number;
+  model?: string;
+  /** Drop reason, or the error text on the fail-open path. */
+  reason?: string;
+  urgency?: number;
+}
 
 /** Terminal disposition of a message after all pipeline stages have run. */
 export type Result = "dropped" | "delivered" | "failed";
@@ -99,29 +116,36 @@ export async function updateRateLimit(
  *
  * @param env - Worker environment exposing the `DB` binding.
  * @param id - Message id (also the log row primary key).
- * @param decision - Whether the message was accepted or dropped.
- * @param violation - Specific reason for the decision.
+ * @param record - The verdict and the Jev answers behind it.
  * @param result - Set to `"dropped"` to also record the terminal outcome.
  */
 export async function updateAi(
   env: Env,
   id: string,
-  decision: AiDecision,
-  violation: AiViolation,
+  record: AiRecord,
   result?: "dropped"
 ): Promise<void> {
+  const binds = [
+    record.decision,
+    record.kind ?? null,
+    record.kindConfidence ?? null,
+    record.dropProbability ?? null,
+    record.hijack ?? null,
+    record.urgency ?? null,
+    record.model ?? null,
+    record.reason ?? null,
+  ];
+  const columns =
+    "ai_decision = ?, ai_kind = ?, ai_kind_confidence = ?, ai_drop_probability = ?, " +
+    "ai_hijack = ?, ai_urgency = ?, ai_model = ?, ai_reason = ?";
   if (result !== undefined) {
-    await env.DB.prepare(
-      "UPDATE log SET ai_decision = ?, ai_violation = ?, result = ? WHERE id = ?"
-    )
-      .bind(decision, violation, result, id)
+    await env.DB.prepare(`UPDATE log SET ${columns}, result = ? WHERE id = ?`)
+      .bind(...binds, result, id)
       .run();
     return;
   }
-  await env.DB.prepare(
-    "UPDATE log SET ai_decision = ?, ai_violation = ? WHERE id = ?"
-  )
-    .bind(decision, violation, id)
+  await env.DB.prepare(`UPDATE log SET ${columns} WHERE id = ?`)
+    .bind(...binds, id)
     .run();
 }
 
