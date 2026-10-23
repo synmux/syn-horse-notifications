@@ -4,7 +4,7 @@
 
 - Cloudflare Worker for notification processing (`wrangler.jsonc` `main: src/index.ts`). It is primarily a **queue consumer** for `syn-horse-notifications` and also exposes a small `fetch` handler serving a single `/ack` HTTP endpoint.
 - Runtime bindings currently configured: `KV`, `DB` (D1), `EMAIL` (Cloudflare Email). AI moderation calls TypeSafe's HTTP API directly; there is no Workers AI binding.
-- Secrets (`wrangler.jsonc` `secrets.required`): `NTFY_TOKEN`, `SELF_TOKEN`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_TOKEN`, `TYPESAFE_API_KEY`. Plain vars: `NTFY_SERVER`, `NTFY_TOPIC`.
+- Secrets (`wrangler.jsonc` `secrets.required`): `NTFY_TOKEN`, `SELF_TOKEN`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_TOKEN`, `TYPESAFE_API_KEY`. Plain vars: `MODERATION_ENFORCE`, `NTFY_SERVER`, `NTFY_TOPIC`.
 - Code is TypeScript ESM with explicit `.ts` import extensions and strict typechecking.
 
 ## Toolchain / Runtime
@@ -84,6 +84,7 @@ Scripts call binaries directly (`wrangler`, `ultracite`, `biome`, `tsc`, `run-s`
 - `src/stages/ai.ts` sends one request to TypeSafe's Jev (System One) model, pinned to `MODERATION_MODEL = "jev-1.13.0"`, through `askJev` in `src/jev.ts` (plain `fetch` to `POST https://api.typesafe.ai/v1/systemone`, bearer `TYPESAFE_API_KEY`, 5 s timeout, no retries).
 - The request carries a short domain `context` plus `page: { channel, message }` (contact and source are deliberately left out) and three independent questions (`MODERATION_QUESTIONS`): a Choice `kind` (`page | joke | gibberish | spam`), a Noul `hijack` (does the message try to steer the screening system), and a 3-level Score `urgency`.
 - The verdict is computed in code by `decideModeration` (pure, replayable over logged answers): drop as `spam` when `hijack >= HIJACK_AT` (0.7); otherwise drop when `P(spam) + P(gibberish) >= DROP_AT[channel]` (`red` 0.5, `green` 0.8, so red drops on weaker evidence). A policy change is a threshold edit, not a question rewrite. Thresholds are hand-picked from 16 recorded answers and still need tuning on real log rows.
+- **Shadow mode by default.** Drops are enforced only when the `MODERATION_ENFORCE` var (`wrangler.jsonc` `vars`, default `"false"`) is exactly `"true"`. Otherwise a would-be drop keeps `ai_decision = 'drop'` with `ai_reason` prefixed `shadow: `, and the page is delivered. Find them with `ai_decision = 'drop' AND result = 'delivered'`.
 - **Fails open.** Any failure to get a verdict (missing secret, network error, timeout, 429/529, schema-invalid body) delivers the page and records `ai_decision = 'error'` with the reason in `ai_reason`, matching the rate limiter's `kv_error` path. Nothing in this stage throws to the queue handler.
 - Log columns (migration 0002): `ai_decision` (`accept | drop | error`), `ai_kind`, `ai_kind_confidence`, `ai_drop_probability`, `ai_hijack`, `ai_urgency`, `ai_model`, `ai_reason`.
 - Urgency is recorded but not yet acted on; using it to set Pushover priority is a known follow-up.

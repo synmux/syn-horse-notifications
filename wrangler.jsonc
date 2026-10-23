@@ -58,6 +58,7 @@
   ],
   "upload_source_maps": true,
   "vars": {
+    "MODERATION_ENFORCE": "false",
     "NTFY_SERVER": "https://ntfy.sh",
     "NTFY_TOPIC": "syn-horse"
   },

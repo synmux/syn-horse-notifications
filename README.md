@@ -22,6 +22,8 @@ Any stage can short-circuit (`STOP`) — for example a rate-limit drop or an AI 
 
 AI moderation sends one request with three questions (what kind of message this is, whether it tries to manipulate the screening system, how urgent it is) and applies the drop thresholds in code (`src/stages/ai.ts`). It **fails open**: if Jev cannot be reached the page is delivered and the row is marked `ai_decision = 'error'`.
 
+Drops are only enforced when `MODERATION_ENFORCE` is `"true"`. The default is `"false"` (shadow mode): would-be drops are delivered and logged with `ai_decision = 'drop'` and an `ai_reason` starting `shadow: `.
+
 Error behavior:
 
 - Invalid payloads are logged and ACKed (not retried).
@@ -65,7 +67,7 @@ Available adapters:
 Configured in `wrangler.jsonc`:
 
 - Secrets (`secrets.required`, set with `wrangler secret put`): `NTFY_TOKEN`, `SELF_TOKEN`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_TOKEN`, `TYPESAFE_API_KEY`
-- Plain vars: `NTFY_SERVER` (default `https://ntfy.sh`), `NTFY_TOPIC`
+- Plain vars: `MODERATION_ENFORCE` (default `"false"`, shadow mode), `NTFY_SERVER` (default `https://ntfy.sh`), `NTFY_TOPIC`
 
 ## Prerequisites
 

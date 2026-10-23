@@ -188,6 +188,11 @@ export function decideModeration(
  * One Jev request per message. Spam, gibberish and hijack attempts are
  * terminal drops ({@link STOP}); pages and jokes continue to delivery.
  *
+ * **Shadow mode.** Drops are enforced only when the `MODERATION_ENFORCE`
+ * var is exactly `"true"`. Otherwise a would-be drop is recorded with
+ * `ai_decision = 'drop'` and `ai_reason` prefixed `shadow: `, and the page
+ * is delivered.
+ *
  * **Fails open.** Any failure to get a verdict (missing secret, network
  * error, timeout, 429/529, bad body) delivers the page and records
  * `ai_decision = 'error'` with the reason, matching the rate limiter's
@@ -235,6 +240,15 @@ export async function runAi(
     urgency: verdict.urgency,
   };
   if (verdict.decision === "drop") {
+    // Shadow mode: keep the would-be drop on the row, deliver anyway.
+    // wrangler types the var as the literal in wrangler.jsonc; it is any string at runtime.
+    if ((env.MODERATION_ENFORCE as string) !== "true") {
+      await updateAi(env, id, {
+        ...record,
+        reason: `shadow: ${record.reason}`,
+      });
+      return CONTINUE;
+    }
     await updateAi(env, id, record, "dropped");
     return STOP;
   }

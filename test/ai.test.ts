@@ -104,7 +104,11 @@ interface Write {
 }
 
 /** Minimal D1 stand-in that records every statement and its bindings. */
-function fakeEnv(apiKey: string | undefined, writes: Write[]): Env {
+function fakeEnv(
+  apiKey: string | undefined,
+  writes: Write[],
+  enforce = "true"
+): Env {
   const db = {
     prepare: (sql: string) => ({
       bind: (...binds: unknown[]) => ({
@@ -115,7 +119,11 @@ function fakeEnv(apiKey: string | undefined, writes: Write[]): Env {
       }),
     }),
   };
-  return { DB: db, TYPESAFE_API_KEY: apiKey } as unknown as Env;
+  return {
+    DB: db,
+    MODERATION_ENFORCE: enforce,
+    TYPESAFE_API_KEY: apiKey,
+  } as unknown as Env;
 }
 
 const PAYLOAD: Payload = {
@@ -204,5 +212,56 @@ describe("runAi", () => {
     );
     expect(result).toBe(CONTINUE);
     expect(writes[0]?.binds).toContain("error");
+  });
+});
+
+describe("runAi with MODERATION_ENFORCE off (shadow mode)", () => {
+  it("delivers spam but records the would-be drop", async () => {
+    const writes: Write[] = [];
+    const result = await runAi(
+      fakeEnv("key", writes, "false"),
+      "msg-6",
+      PAYLOAD,
+      fetchWith(fixtures.cruise_red.response)
+    );
+    expect(result).toBe(CONTINUE);
+    const [write] = writes;
+    expect(write?.binds).toContain("drop");
+    expect(write?.binds).toContain("spam");
+    expect(write?.binds).not.toContain("dropped");
+    expect(write?.binds.some((b) => String(b).startsWith("shadow: "))).toBe(
+      true
+    );
+  });
+
+  it("treats anything other than exactly 'true' as shadow mode", async () => {
+    for (const value of ["", "TRUE", "1", "yes"]) {
+      const writes: Write[] = [];
+      // biome-ignore lint/performance/noAwaitInLoops: one case at a time keeps the failing value obvious
+      const result = await runAi(
+        fakeEnv("key", writes, value),
+        `msg-${value}`,
+        PAYLOAD,
+        fetchWith(fixtures.cruise_red.response)
+      );
+      expect(result, `MODERATION_ENFORCE=${JSON.stringify(value)}`).toBe(
+        CONTINUE
+      );
+    }
+  });
+
+  it("leaves accepted pages unchanged", async () => {
+    const writes: Write[] = [];
+    const result = await runAi(
+      fakeEnv("key", writes, "false"),
+      "msg-7",
+      { ...PAYLOAD, message: "Production DB is down, on-call please ack" },
+      fetchWith(fixtures.prompt_db_down_red.response)
+    );
+    expect(result).toBe(CONTINUE);
+    expect(writes[0]?.binds).toContain("accept");
+    expect(writes[0]?.binds.some((b) => String(b).startsWith("shadow"))).toBe(
+      false
+    );
   });
 });
