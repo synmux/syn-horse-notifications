@@ -32,7 +32,7 @@ lint:
     - trunk-toolbox@0.7.0
     - oxipng@10.2.1
     - actionlint@1.7.12
-    - checkov@3.3.30
+    - checkov@3.4.0
     - git-diff-check
     - markdownlint@0.50.0
     - taplo@0.10.0

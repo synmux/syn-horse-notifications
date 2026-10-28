@@ -7,4 +7,4 @@ V0_API_KEY = ''
 env_file = '.env'
 
 [tools]
-node = { version = '26.12.0' }
+node = "26.12.1"
