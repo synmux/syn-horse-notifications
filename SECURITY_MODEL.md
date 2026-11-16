@@ -1,12 +1,12 @@
 # Threat model: syn.horse + syn-horse-notifications
 
-Status: written from the code (2026-11-16) and updated with the owner's answers the same day; facts the owner gave are marked **(user-stated)**. Neither repo has a `SECURITY_MODEL.md`.
+Status: written from the code (2026-11-16) and updated with the owner's answers the same day; facts the owner gave are marked **(user-stated)**.
 
 ## System overview and trust boundaries
 
 A one-person personal site and its paging pipeline, both on Cloudflare Workers.
 
-```
+```text
 internet visitor ──HTTPS──> syn.horse Worker (Nuxt 4 / Nitro, cloudflare_module)
                               │  POST /api/panic (Turnstile) ──> D1 DB (panic_pages)
                               │                               └─> Queue "syn-horse-notifications"
@@ -18,6 +18,7 @@ ntfy "ack" button ──HTTPS──> notifications Worker GET/POST /ack (X-Self-
 ```
 
 Trust boundaries:
+
 1. Internet → syn.horse Worker (all public routes, `/api/panic`).
 2. syn.horse Worker → Queue → notifications Worker. Queue messages are producer-built but carry visitor-controlled `message`, `contact`, and a `source` taken from `X-Forwarded-For` / `CF-Connecting-IP` (`server/utils/pager.ts`).
 3. Notifications Worker → third parties: TypeSafe (moderation), ntfy.sh, Pushover, Cloudflare Email.
@@ -28,13 +29,13 @@ Trusted (assumed): the owner, the Cloudflare account, GitHub org `synmux`, Cloud
 
 ## Components
 
-| Component | Code |
-| --- | --- |
-| Site frontend | `syn-horse`: `app/**` (pages, layouts, components, `app/data/*.ts`), `content/blog/*.md`, `public/` |
-| Site server | `syn-horse`: `server/api/**`, `server/utils/**`, `server/middleware/**`, `server/db/**`, `modules/**`, `nuxt.config.ts` (routeRules, nuxt-security CSP, Turnstile) |
-| Paging consumer | `syn-horse-notifications`: `src/index.ts`, `src/schema.ts`, `src/stages/**`, `src/db.ts`, `src/kv.ts`, `src/jev.ts`, `migrations/**` |
-| Delivery adapters | `syn-horse-notifications`: `src/adapters/**` (ntfy, pushover, email, twilio, stub) |
-| Ack endpoint | `syn-horse-notifications`: `src/http.ts` |
+| Component           | Code                                                                                                                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Site frontend       | `syn-horse`: `app/**` (pages, layouts, components, `app/data/*.ts`), `content/blog/*.md`, `public/`                                                                                                                                                    |
+| Site server         | `syn-horse`: `server/api/**`, `server/utils/**`, `server/middleware/**`, `server/db/**`, `modules/**`, `nuxt.config.ts` (routeRules, nuxt-security CSP, Turnstile)                                                                                     |
+| Paging consumer     | `syn-horse-notifications`: `src/index.ts`, `src/schema.ts`, `src/stages/**`, `src/db.ts`, `src/kv.ts`, `src/jev.ts`, `migrations/**`                                                                                                                   |
+| Delivery adapters   | `syn-horse-notifications`: `src/adapters/**` (ntfy, pushover, email, twilio, stub)                                                                                                                                                                     |
+| Ack endpoint        | `syn-horse-notifications`: `src/http.ts`                                                                                                                                                                                                               |
 | Infrastructure & CI | `syn-horse`: `nitro.cloudflare.wrangler` block in `nuxt.config.ts`, `wrangler.dev.jsonc`, `.github/**`, `lefthook.yml`, `.trunk/**`; `syn-horse-notifications`: `wrangler.jsonc`, `.github/**`; both: `package.json`, `pnpm-workspace.yaml`, lockfiles |
 
 ## Entry points and who can reach them
@@ -79,11 +80,12 @@ Out of model (assumed trusted): the owner, Cloudflare account holders, GitHub or
 ## Out of scope / accepted risk
 
 **(user-stated)** Accepted risk / out of scope:
+
 - Dev-only paths: the `import.meta.dev` Turnstile bypass in `server/api/panic.post.ts` and the tailnet dev host in `wrangler.dev.jsonc` / the wrangler dev block. Findings that only matter in local dev are out of scope.
 - AI moderation running in shadow mode (`MODERATION_ENFORCE="false"`) and failing open (`src/stages/ai.ts`, `src/jev.ts`).
 - Rate limiter failing open on KV errors (`src/stages/rate-limits.ts`).
 
-Still in scope (not ruled out): the `/ack` endpoint, rate-limit *bypass* (e.g. spoofing `source`), and anything else not listed above.
+Still in scope (not ruled out): the `/ack` endpoint, rate-limit _bypass_ (e.g. spoofing `source`), and anything else not listed above.
 
 ## Open questions
 
