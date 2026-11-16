@@ -8,8 +8,9 @@ A one-person personal site and its paging pipeline, both on Cloudflare Workers.
 
 ```text
 internet visitor ──HTTPS──> syn.horse Worker (Nuxt 4 / Nitro, cloudflare_module)
-                              │  POST /api/panic (Turnstile) ──> D1 DB (panic_pages)
-                              │                               └─> Queue "syn-horse-notifications"
+                              │    hosts: syn.horse, www.syn.horse, syn-horse.synmux.workers.dev
+                              │  POST /api/panic (Turnstile) ──> 1. Queue "syn-horse-notifications"
+                              │                               └─> 2. D1 DB (panic_pages row)
                               └─ SSR blog from D1 DB_CONTENT (self-healing sync), KV
 Queue ──> syn-horse-notifications Worker (queue consumer)
             log (D1) → rate limit (KV) → AI moderation (TypeSafe Jev API) → delivery
@@ -19,8 +20,8 @@ ntfy "ack" button ──HTTPS──> notifications Worker GET/POST /ack (X-Self-
 
 Trust boundaries:
 
-1. Internet → syn.horse Worker (all public routes, `/api/panic`).
-2. syn.horse Worker → Queue → notifications Worker. Queue messages are producer-built but carry visitor-controlled `message`, `contact`, and a `source` taken from `X-Forwarded-For` / `CF-Connecting-IP` (`server/utils/pager.ts`).
+1. Internet → syn.horse Worker (all public routes, `/api/panic`). Every route is reachable on each of its hostnames: the `syn.horse` and `www.syn.horse` custom domains and `syn-horse.synmux.workers.dev` (`workers_dev: true` in the `nitro.cloudflare.wrangler` block of `nuxt.config.ts`).
+2. syn.horse Worker → Queue → notifications Worker. Queue messages are producer-built but carry visitor-controlled `channel`, `message`, `contact`, and a `source` taken from `X-Forwarded-For` / `CF-Connecting-IP` (`server/utils/pager.ts`). `channel` is the visitor's choice of `red` or `green` and selects delivery: `red` → Pushover at maximum priority, `green` → ntfy.
 3. Notifications Worker → third parties: TypeSafe (moderation), ntfy.sh, Pushover, Cloudflare Email.
 4. Internet → notifications Worker `/ack` on `syn-horse-notifications.synmux.workers.dev` (`workers_dev: true`).
 5. Build/CI: GitHub Actions (`.github/workflows/*`, Claude review actions), npm deps via pnpm (`minimumReleaseAge` one week in notifications).
@@ -40,8 +41,8 @@ Trusted (assumed): the owner, the Cloudflare account, GitHub org `synmux`, Cloud
 
 ## Entry points and who can reach them
 
-- **Public site pages** (`app/pages/**`, blog `[slug]`): anyone. Server-rendered; blog content from the owner's own markdown.
-- **`POST /api/panic`** (`server/api/panic.post.ts`): anyone who passes Cloudflare Turnstile. Zod-validated (`message` 10–2000, `contact` 3–200). In dev (`import.meta.dev`) Turnstile is skipped. Writes a D1 row and enqueues a page.
+- **Public site pages** (`app/pages/**`, blog `[slug]`): anyone, on `syn.horse`, `www.syn.horse` and `syn-horse.synmux.workers.dev`. Server-rendered; blog content from the owner's own markdown.
+- **`POST /api/panic`** (`server/api/panic.post.ts`): anyone who passes Cloudflare Turnstile. Zod-validated (`channel` `red`/`green`, `message` 10–2000, `contact` 3–200). In dev (`import.meta.dev`) Turnstile is skipped. Enqueues the page first, then inserts the `panic_pages` row with status `queued` or `send_failed`. If the insert fails after a successful send, the page is delivered with no D1 record and the request errors; a retry gets a fresh UUID and enqueues a duplicate page.
 - **Content-sync middleware** (`server/middleware/content-sync.ts`): runs on content queries; rebuilds D1 `DB_CONTENT` from the bundled dump; can send red/green pages on failure/recovery.
 - **Easter-egg redirects** (`/sudo`, `/ssh`, `/gpg` → `public.syn.horse`): anyone.
 - **Queue consumer**: only the syn.horse Worker produces (no producers configured in notifications `wrangler.jsonc`).
@@ -73,7 +74,7 @@ Out of model (assumed trusted): the owner, Cloudflare account holders, GitHub or
 - Turnstile on `/api/panic` in production; Zod validation on both producer and consumer (`z.strictObject` on the consumer).
 - Per-source KV rate limits (hour 10 / day 100 / lifetime 1000) – fail open on KV errors by design.
 - AI moderation (Jev) – shadow mode by default (`MODERATION_ENFORCE="false"`), fails open by design.
-- nuxt-security headers + CSP (nonce, `strict-dynamic`, `wasm-unsafe-eval`), SRI, hashed scripts/styles.
+- nuxt-security headers + CSP (nonce, `strict-dynamic`, `wasm-unsafe-eval`), SRI. The `security.ssg` `hashScripts`/`hashStyles` options only hash prerendered pages, so SSR responses rely on the nonce CSP, not on hashes.
 - Secrets supplied via `wrangler secret`, not committed; `preview_urls: false`.
 - CI: DevSkim, Claude review, SHA-pinned actions, pnpm `minimumReleaseAge`.
 
