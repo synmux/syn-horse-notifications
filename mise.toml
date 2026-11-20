@@ -1,5 +1,5 @@
 [env]
-GITHUB_TOKEN = '{{ env.__GITHUB_TOKEN }}'
+GITHUB_TOKEN = '{{ exec(command="gh auth token") }}'
 SYN_HORSE_MISE_ACTIVE = 'true'
 V0_API_KEY = ''
 
